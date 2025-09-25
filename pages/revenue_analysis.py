@@ -1,11 +1,12 @@
+# pages/revenue_analysis.py
 import dash
 from dash import html, dcc, callback, Input, Output, State, no_update
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-import base64
 from datetime import datetime
-import time
+import base64
+import io
 
 # Import all necessary functions from your utils modules
 from utils.placeholders import run_revenue_model_placeholder
@@ -24,7 +25,6 @@ situation_options = [
 ]
 
 # --- Layout Definition ---
-# The layout is defined once and is always present. Callbacks will update the children of these components.
 layout = dbc.Container([
     dbc.Row([
         # --- Sidebar Column ---
@@ -42,18 +42,17 @@ layout = dbc.Container([
                 ),
                 html.Div(id='ra-upload-status', className="small mb-3"),
                 dbc.Label("3. Optimization Strategy"),
-                dbc.RadioItems(id='ra-goal-radio', options=[{'label': 'Minimize Bill', 'value': 'minimize'}, {'label': 'Generate Revenue', 'value': 'generate'}], value='generate', inline=True, className="mb-2"),
+                dbc.RadioItems(
+                    id='ra-goal-radio',
+                    options=[{'label': 'Minimize Bill', 'value': 'minimize'}, {'label': 'Generate Revenue', 'value': 'generate'}],
+                    value='generate', inline=True, className="mb-2"
+                ),
                 html.Div(id='ra-strategy-container', className="mb-3"),
                 html.Div(id='ra-battery-params-container'),
                 dbc.Label("Cost Parameters"),
                 dbc.InputGroup([dbc.InputGroupText("Supplier €/MWh"), dbc.Input(id='ra-supply-costs', type='number', value=20.0)], className="mb-2"),
                 dbc.InputGroup([dbc.InputGroupText("Transport €/MWh"), dbc.Input(id='ra-transport-costs', type='number', value=15.0)], className="mb-3"),
-                dbc.Button("🚀 Run Analysis", id="ra-run-button", color="primary", n_clicks=0, className="w-100"),
-                
-                # THIS IS THE NEW PROGRESS INDICATOR AREA
-                # It's hidden by default and will be shown by the callback.
-                html.Div(id='ra-progress-container', className="mt-3")
-                
+                dbc.Button("🚀 Run Analysis", id="ra-run-button", color="primary", n_clicks=0, className="w-100")
             ]), className="h-100"),
             width=12, lg=3, className="mb-4"
         ),
@@ -66,8 +65,12 @@ layout = dbc.Container([
             html.H4("Selected Configuration"),
             html.Div(id='ra-diagram-output', className="mb-4"),
             html.Hr(),
-            # The results area, which will be updated after the model runs.
-            html.Div(id="ra-results-output", children=dbc.Alert("Configure your simulation in the sidebar and click 'Run Analysis' to see the results.", color="info"))
+            # The loading spinner now wraps ONLY the results div. This is the most reliable pattern.
+            dcc.Loading(
+                id="ra-loading-spinner",
+                type="default",
+                children=html.Div(id="ra-results-output")
+            )
         ], width=12, lg=9),
     ]),
     
@@ -76,71 +79,11 @@ layout = dbc.Container([
     dcc.Store(id='ra-input-df-store'),
 ], fluid=True, className="mt-4")
 
-
 # =============================================================================
 # Callbacks
 # =============================================================================
 
-# This is a new, more advanced callback that handles the entire simulation process.
-# It uses background=True to allow the app to remain responsive and to update the progress indicator.
-@callback(
-    Output('ra-results-store', 'data'),
-    Input('ra-run-button', 'n_clicks'),
-    [
-        State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
-        State('ra-power-mw', 'value'), State('ra-capacity-mwh', 'value'),
-        State('ra-soc-slider', 'value'), State('ra-eff-ch', 'value'),
-        State('ra-eff-dis', 'value'), State('ra-max-cycles', 'value'),
-        State('ra-supply-costs', 'value'), State('ra-transport-costs', 'value'),
-    ],
-    background=True,       # <-- This runs the process in the background
-    progress=Output('ra-progress-container', 'children'), # <-- This is where progress messages go
-    prevent_initial_call=True
-)
-def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
-    if not df_json:
-        return {"error": "Please upload a data file first."}
-
-    # This is the progress callback function, just like in your Streamlit app
-    def progress_callback(message):
-        set_progress([
-            dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}, className="mb-2"),
-            html.P(f"⏳ {message}", className="small text-muted")
-        ])
-
-    progress_callback("Reading data...")
-    input_df = pd.read_json(df_json, orient='split')
-    params = {
-        "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
-        "MIN_SOC": soc[0] if soc else 0, "MAX_SOC": soc[1] if soc else 1,
-        "EFF_CH": eff_ch or 1, "EFF_DIS": eff_dis or 1,
-        "MAX_CYCLES": cycles or 0, "INIT_SOC": 0.5,
-        "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
-        "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
-    }
-    
-    # The placeholder will now use the progress_callback to send updates to the screen
-    results = run_revenue_model_placeholder(params, input_df, progress_callback)
-    
-    # Signal completion
-    set_progress([
-        dbc.Progress(value=100, color="success", style={"height": "5px"}, className="mb-2"),
-        html.P("✅ Simulation Complete!", className="small text-success")
-    ])
-    time.sleep(2) # Give the user a moment to see the completion message
-    
-    return results
-
-# This callback simply clears the progress indicator after the results are stored and displayed.
-@callback(
-    Output('ra-progress-container', 'children', allow_duplicate=True),
-    Input('ra-results-store', 'data'),
-    prevent_initial_call=True
-)
-def clear_progress_indicator(_):
-    return None
-
-# The rest of the callbacks are for updating the UI and are mostly unchanged.
+# This callback's logic is correct and remains unchanged.
 @callback(Output('ra-strategy-container', 'children'), Input('ra-goal-radio', 'value'))
 def update_strategy_dropdown(goal_choice):
     if goal_choice == 'minimize':
@@ -154,6 +97,7 @@ def update_strategy_dropdown(goal_choice):
             dcc.Dropdown(id='ra-strategy-dropdown', options=["Simple Battery Trading (Imbalance)", "Advanced Whole-System Trading (Imbalance)"], value="Simple Battery Trading (Imbalance)")
         ])
 
+# This callback's "hide-don't-remove" logic is correct and remains unchanged.
 @callback(Output('ra-battery-params-container', 'children'), Input('ra-situation-dropdown', 'value'))
 def show_battery_params(situation):
     display_style = {'display': 'block'}
@@ -172,11 +116,13 @@ def show_battery_params(situation):
         dbc.InputGroup([dbc.InputGroupText("Max Cycles/Year"), dbc.Input(id='ra-max-cycles', type='number', value=600, min=1)], className="mt-2 mb-3"),
     ])
 
+# This callback's logic is correct and remains unchanged.
 @callback(Output('ra-diagram-output', 'children'), Input('ra-situation-dropdown', 'value'))
 def update_diagram(situation):
     if not situation: return dbc.Alert("Please select a system configuration.", color="warning")
     return create_horizontal_diagram_with_icons(situation)
 
+# This callback's logic is correct and remains unchanged.
 @callback(
     [Output('ra-upload-status', 'children'), Output('ra-input-df-store', 'data')],
     Input('ra-upload-data', 'contents'), State('ra-upload-data', 'filename'),
@@ -188,6 +134,35 @@ def handle_upload(contents, filename):
     if df is None: return html.Div(message, className="text-danger small"), None
     return html.Div(message, className="text-success small"), df.to_json(date_format='iso', orient='split')
 
+# This is the main callback that runs the simulation. It is a standard callback now.
+@callback(
+    Output('ra-results-store', 'data'),
+    Input('ra-run-button', 'n_clicks'),
+    [
+        State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
+        State('ra-power-mw', 'value'), State('ra-capacity-mwh', 'value'),
+        State('ra-soc-slider', 'value'), State('ra-eff-ch', 'value'),
+        State('ra-eff-dis', 'value'), State('ra-max-cycles', 'value'),
+        State('ra-supply-costs', 'value'), State('ra-transport-costs', 'value'),
+    ],
+    prevent_initial_call=True
+)
+def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
+    if not df_json: return {"error": "Please upload a data file first."}
+    
+    input_df = pd.read_json(df_json, orient='split')
+    params = {
+        "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
+        "MIN_SOC": soc[0] if soc else 0, "MAX_SOC": soc[1] if soc else 1,
+        "EFF_CH": eff_ch or 1, "EFF_DIS": eff_dis or 1,
+        "MAX_CYCLES": cycles or 0, "INIT_SOC": 0.5,
+        "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
+        "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
+    }
+    # We call the placeholder, which will now use the correct data.
+    return run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
+
+# This callback displays the results after the model is finished running.
 @callback(Output('ra-results-output', 'children'), Input('ra-results-store', 'data'))
 def display_results(results_data):
     if not results_data:
@@ -245,8 +220,6 @@ def update_charts(resolution, results_data):
 )
 def download_excel(n_clicks, results_data):
     if not results_data or "output_file_bytes_b64" not in results_data: return no_update
-    return dcc.send_data_frame(
-        pd.read_excel(io.BytesIO(base64.b64decode(results_data["output_file_bytes_b64"]))).to_excel,
-        f"Revenue_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        sheet_name="Results"
-    )
+    # This now correctly handles the Base64 encoded string
+    content = base64.b64decode(results_data["output_file_bytes_b64"])
+    return dcc.send_bytes(content, f"Revenue_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
