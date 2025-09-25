@@ -33,7 +33,7 @@ situation_options = [
 sidebar = dbc.Card(dbc.CardBody([
     html.H4("⚙️ Configuration", className="mb-3"),
     dbc.Label("1. System Configuration"),
-    dcc.Dropdown(id="ra-situation-dropdown", options=situation_options, value=situation_options[3], className="mb-3"),
+    dcc.Dropdown(id="ra-situation-dropdown", options=situation_options, value=situation_options[3], className="mb-3", clearable=False),
     
     dbc.Label("2. Upload Data (CSV or Excel)"),
     dcc.Upload(
@@ -48,7 +48,7 @@ sidebar = dbc.Card(dbc.CardBody([
     dbc.RadioItems(
         id='ra-goal-radio',
         options=[
-            {'label': 'Minimize My Energy Bill', 'value': 'minimize'},
+            {'label': 'Minimize Bill', 'value': 'minimize'},
             {'label': 'Generate Revenue', 'value': 'generate'},
         ],
         value='generate',
@@ -57,6 +57,7 @@ sidebar = dbc.Card(dbc.CardBody([
     ),
     html.Div(id='ra-strategy-container', className="mb-3"),
 
+    # This container will be hidden or shown via the callback
     html.Div(id='ra-battery-params-container'),
     
     dbc.Label("Cost Parameters"),
@@ -88,44 +89,43 @@ layout = dbc.Container([
 ], fluid=True, className="mt-4")
 
 # =============================================================================
-# Callbacks for Interactivity
+# Callbacks
 # =============================================================================
 
-@callback(
-    Output('ra-strategy-container', 'children'),
-    Input('ra-goal-radio', 'value')
-)
+@callback(Output('ra-strategy-container', 'children'), Input('ra-goal-radio', 'value'))
 def update_strategy_dropdown(goal_choice):
     if goal_choice == 'minimize':
         return html.Div([
             dbc.Alert("Use assets to reduce overall energy costs.", color="info", className="small p-2"),
             dcc.Dropdown(id='ra-strategy-dropdown', options=["Prioritize Self-Consumption", "Optimize on Day-Ahead Market"], value="Prioritize Self-Consumption")
         ])
-    else: # generate
+    else:
         return html.Div([
             dbc.Alert("Actively use assets to trade on energy markets.", color="info", className="small p-2"),
             dcc.Dropdown(id='ra-strategy-dropdown', options=["Simple Battery Trading (Imbalance)", "Advanced Whole-System Trading (Imbalance)"], value="Simple Battery Trading (Imbalance)")
         ])
 
-@callback(
-    Output('ra-battery-params-container', 'children'),
-    Input('ra-situation-dropdown', 'value')
-)
+@callback(Output('ra-battery-params-container', 'children'), Input('ra-situation-dropdown', 'value'))
 def show_battery_params(situation):
-    if situation and ("Battery" in situation or "PAP" in situation):
-        return html.Div([
-            dbc.Label("Battery Parameters"),
-            dbc.InputGroup([dbc.InputGroupText("Power (MW)"), dbc.Input(id='ra-power-mw', type='number', value=1.0, min=0.1, step=0.1)], className="mb-2"),
-            dbc.InputGroup([dbc.InputGroupText("Capacity (MWh)"), dbc.Input(id='ra-capacity-mwh', type='number', value=2.0, min=0.1, step=0.1)], className="mb-2"),
-            html.Div("Min/Max SoC", className="small text-muted mt-2"),
-            dcc.RangeSlider(id='ra-soc-slider', min=0, max=1, step=0.01, value=[0.05, 0.95], marks={0: '0%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
-            html.Div("Charging Efficiency", className="small text-muted mt-2"),
-            dcc.Slider(id='ra-eff-ch', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
-            html.Div("Discharging Efficiency", className="small text-muted mt-2"),
-            dcc.Slider(id='ra-eff-dis', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
-            dbc.InputGroup([dbc.InputGroupText("Max Cycles/Year"), dbc.Input(id='ra-max-cycles', type='number', value=600, min=1)], className="mt-2 mb-3"),
-        ])
-    return None
+    # **THIS IS THE CRITICAL FIX FOR THE "RUN" BUTTON**
+    # We now always return the components, but hide them with CSS `display: none`
+    # This ensures the component IDs exist in the layout for other callbacks.
+    display_style = {'display': 'block'}
+    if not situation or not ("Battery" in situation or "PAP" in situation):
+        display_style = {'display': 'none'}
+
+    return html.Div(style=display_style, children=[
+        dbc.Label("Battery Parameters"),
+        dbc.InputGroup([dbc.InputGroupText("Power (MW)"), dbc.Input(id='ra-power-mw', type='number', value=1.0, min=0.1, step=0.1)], className="mb-2"),
+        dbc.InputGroup([dbc.InputGroupText("Capacity (MWh)"), dbc.Input(id='ra-capacity-mwh', type='number', value=2.0, min=0.1, step=0.1)], className="mb-2"),
+        html.Div("Min/Max SoC", className="small text-muted mt-2"),
+        dcc.RangeSlider(id='ra-soc-slider', min=0, max=1, step=0.01, value=[0.05, 0.95], marks={0: '0%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
+        html.Div("Charging Efficiency", className="small text-muted mt-2"),
+        dcc.Slider(id='ra-eff-ch', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
+        html.Div("Discharging Efficiency", className="small text-muted mt-2"),
+        dcc.Slider(id='ra-eff-dis', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
+        dbc.InputGroup([dbc.InputGroupText("Max Cycles/Year"), dbc.Input(id='ra-max-cycles', type='number', value=600, min=1)], className="mt-2 mb-3"),
+    ])
 
 @callback(Output('ra-diagram-output', 'children'), Input('ra-situation-dropdown', 'value'))
 def update_diagram(situation):
@@ -169,10 +169,7 @@ def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_d
     }
     return run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
 
-@callback(
-    Output('ra-results-output', 'children'),
-    Input('ra-results-store', 'data')
-)
+@callback(Output('ra-results-output', 'children'), Input('ra-results-store', 'data'))
 def display_results(results_data):
     if not results_data:
         return dbc.Alert("Configure your simulation in the sidebar and click 'Run Analysis' to see the results.", color="info")
