@@ -4,6 +4,7 @@ import os
 from pyomo.environ import *
 from pyomo.opt import SolverFactory
 import sys 
+from pyomo.common.errors import ApplicationError
 
 def get_energy_tax_table():
     """
@@ -30,6 +31,7 @@ def calculate_energy_tax(total_consumption_mwh, tax_table):
     return tax_table['consumption_brackets'][-1]['tax_eur_per_mwh']
 
 def run_battery_trading(config, progress_callback=None):
+    import os
     # Read Excel sheet
     df = config.input_data.copy()
     datetime_col = None
@@ -275,7 +277,26 @@ def run_battery_trading(config, progress_callback=None):
     
     if solver is None:
         try:
-            solver = SolverFactory('cbc')
+            # solver = SolverFactory('cbc')
+            # Construct the path to the cbc.exe file relative to the current script
+            solver_path = os.path.join(
+                os.path.dirname(__file__),  # Gets the directory of the current script (e.g., main_models)
+                '..',                       # Moves up one level to the main project folder
+                'Cbc-releases.2.10.12-w64-msvc16-md', 
+                'bin', 
+                'cbc.exe'
+            )
+
+
+            # Check if the solver executable actually exists at that path
+            if not os.path.exists(solver_path):
+                # If it doesn't exist, stop and raise a clear error
+                raise ApplicationError(f"Solver not found at the expected path: {solver_path}")
+
+            # Create the solver, telling Pyomo exactly where the executable is
+            solver = SolverFactory('cbc', executable=solver_path)
+            # --- End of replacement block ---
+
             if progress_callback:
                 progress_callback("Standaard CBC solver gebruikt")
         except Exception as e:
