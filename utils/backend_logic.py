@@ -9,27 +9,26 @@ import sys
 import os
 import base64
 
-# This block ensures Python can find your 'main_models' package
+# This block ensures Python can find your 'main_models' package from the utils folder
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-# This import block uses the corrected function names you discovered.
+# This is the exact import block from your working revenue_logic.py script
 IMPORTS_OK = False
 IMPORT_ERROR_MESSAGE = ""
 try:
-    from main_models.imbalance_algorithm_SAP import run_simulation as run_battery_trading_SAP
-    from main_models.self_consumption_PV_PAP import calculate_self_consumption as run_battery_trading_PAP
-    from main_models.day_ahead_trading_PAP import execute_day_ahead_logic as run_battery_trading_day_ahead
-    from main_models.imbalance_everything_PAP import run_simulation as run_battery_trading_everything_PAP
+    from main_models.imbalance_algorithm_SAP import run_battery_trading as run_battery_trading_SAP
+    from main_models.self_consumption_PV_PAP import run_battery_trading as run_battery_trading_PAP
+    from main_models.day_ahead_trading_PAP import run_battery_trading as run_battery_trading_day_ahead
+    from main_models.imbalance_everything_PAP import run_battery_trading as run_battery_trading_everything_PAP
     IMPORTS_OK = True
 except ImportError as e:
-    IMPORT_ERROR_MESSAGE = f"Critical Error: Could not import a model file from 'main_models'. Please check file and function names. Details: {e}"
+    IMPORT_ERROR_MESSAGE = f"Critical Error: Could not import an algorithm file from 'main_models'. Please check file and function names. Details: {e}"
 
 def run_master_simulation(params, input_df, progress_callback):
     """
     This is your original revenue_logic function, fully adapted for Dash.
-    It calls the correct model and generates the detailed Excel export.
     """
     if not IMPORTS_OK:
         return {"summary": None, "warnings": [], "error": IMPORT_ERROR_MESSAGE}
@@ -37,7 +36,6 @@ def run_master_simulation(params, input_df, progress_callback):
     now = datetime.datetime.now()
     warnings = []
     
-    # Use a simple class to mimic the config object your models expect
     class Cfg: pass
     config = Cfg()
     for k, v in params.items():
@@ -50,7 +48,7 @@ def run_master_simulation(params, input_df, progress_callback):
     try:
         strategy = params["STRATEGY_CHOICE"]
         
-        # --- 1. Run the selected battery trading algorithm ---
+        # This logic from your script correctly calls the different models
         if strategy == "Simple Battery Trading (Imbalance)":
             df, summary = run_battery_trading_SAP(config, progress_callback=progress_callback)
         elif strategy == "Advanced Whole-System Trading (Imbalance)":
@@ -67,7 +65,7 @@ def run_master_simulation(params, input_df, progress_callback):
 
         progress_callback("Model run complete. Generating Excel output...")
         
-        # --- 2. Define the specific columns to export based on the config ---
+        # --- This is your complete logic for creating the Excel file ---
         if strategy == "Simple Battery Trading (Imbalance)":
             desired_columns = [
                 'regulation_state', 'price_surplus', 'price_shortage', 'price_day_ahead',
@@ -104,12 +102,11 @@ def run_master_simulation(params, input_df, progress_callback):
         df.index.name = 'Datetime'
         existing_columns = [col for col in desired_columns if col in df.columns]
         df_export = df[existing_columns]
-
-        # --- 3. Create a new workbook and populate it correctly ---
+        
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Import uit Python"
-
+        
         rows = dataframe_to_rows(df_export, index=True, header=True)
         for r_idx, row in enumerate(rows, start=7):
             for c_idx, value in enumerate(row, start=2):
@@ -135,7 +132,6 @@ def run_master_simulation(params, input_df, progress_callback):
         ws['W8'] = params['SUPPLY_COSTS']
         ws['W9'] = params['TRANSPORT_COSTS']
 
-        # --- 4. Save workbook to in-memory buffer for download ---
         output_buffer = io.BytesIO()
         wb.save(output_buffer)
         output_buffer.seek(0)
@@ -147,7 +143,7 @@ def run_master_simulation(params, input_df, progress_callback):
 
         progress_callback("Output file generated successfully!")
         
-        # --- 5. Final formatting for Dash ---
+        # --- Final formatting for Dash ---
         file_bytes_b64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
 
         return {
