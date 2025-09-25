@@ -1,4 +1,3 @@
-# utils/data_processing.py
 import pandas as pd
 import io
 import base64
@@ -41,23 +40,29 @@ def resample_data(df, resolution):
     return df
 
 def parse_contents(contents, filename):
-    """Parses the content of an uploaded file (CSV or Excel)."""
+    """
+    Parses the content of an uploaded file (CSV or Excel).
+    Handles different parsing logic based on keywords in the filename.
+    """
     content_type, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
     try:
         if 'csv' in filename:
             df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
         elif 'xls' in filename:
-            # For the revenue analysis tool that uses a specific sheet name
+            # Check for a keyword to decide which sheet to use
             if 'revenue' in filename.lower():
                  df = pd.read_excel(io.BytesIO(decoded), sheet_name='Export naar Python', header=0)
-            else: # For other tools like battery sizing
+            else:
                  df = pd.read_excel(io.BytesIO(decoded))
 
         # Basic validation
         if 'Datetime' not in df.columns:
             return None, "Error: 'Datetime' column not found in the file."
 
-        return df, f"✅ Loaded: {filename}"
+        # The filename passed to this function might have a prefix; we remove it for user display.
+        display_filename = filename.split('revenue_')[-1]
+        return df, f"✅ Loaded: {display_filename}"
+
     except Exception as e:
-        return None, f"Error processing file: {e}. Check format and sheet name ('Export naar Python' for revenue analysis)."
+        return None, f"Error processing file: {e}. Check format and ensure the correct sheet name ('Export naar Python' for revenue analysis) is present."
