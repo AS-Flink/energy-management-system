@@ -4,9 +4,7 @@ from dash import html, dcc, callback, Input, Output, State, no_update
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-import base64
 from datetime import datetime
-import time
 
 # Import all necessary functions from your utils modules
 from utils.placeholders import run_revenue_model_placeholder
@@ -24,7 +22,7 @@ situation_options = [
     "Situation 6: Consumption on PAP, Battery on SAP1, PV on SAP2", "Situation 7: PV + Battery on PAP"
 ]
 
-# --- Sidebar Layout Definition ---
+# --- Sidebar Layout ---
 sidebar = dbc.Card(dbc.CardBody([
     html.H4("⚙️ Configuration", className="mb-3"),
     dbc.Label("1. System Configuration"),
@@ -42,17 +40,11 @@ sidebar = dbc.Card(dbc.CardBody([
     dbc.Label("3. Optimization Strategy"),
     dbc.RadioItems(
         id='ra-goal-radio',
-        options=[
-            {'label': 'Minimize Bill', 'value': 'minimize'},
-            {'label': 'Generate Revenue', 'value': 'generate'},
-        ],
-        value='generate',
-        inline=True,
-        className="mb-2"
+        options=[{'label': 'Minimize Bill', 'value': 'minimize'}, {'label': 'Generate Revenue', 'value': 'generate'}],
+        value='generate', inline=True, className="mb-2"
     ),
     html.Div(id='ra-strategy-container', className="mb-3"),
 
-    # This container will be hidden or shown via the callback
     html.Div(id='ra-battery-params-container'),
     
     dbc.Label("Cost Parameters"),
@@ -62,13 +54,10 @@ sidebar = dbc.Card(dbc.CardBody([
     dbc.Button("🚀 Run Analysis", id="ra-run-button", color="primary", n_clicks=0, className="w-100")
 ]), className="h-100")
 
-# --- Main Page Layout Definition ---
+# --- Full Page Layout ---
 layout = dbc.Container([
     dbc.Row([
-        # --- Sidebar Column ---
         dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
-        
-        # --- Main Content Column ---
         dbc.Col([
             html.H1("Energy System Simulation ⚡"),
             html.P("Select a system configuration, upload your data, configure the parameters, and run the simulation."),
@@ -76,7 +65,8 @@ layout = dbc.Container([
             html.H4("Selected Configuration"),
             html.Div(id='ra-diagram-output', className="mb-4"),
             html.Hr(),
-            # The loading spinner now wraps ONLY the results div. This is a more stable pattern.
+            # **THIS IS THE LOADING SPINNER FIX**
+            # The spinner now wraps ONLY the results div. It will appear on the main page.
             dcc.Loading(
                 id="ra-loading-spinner",
                 type="default",
@@ -85,11 +75,9 @@ layout = dbc.Container([
         ], width=12, lg=9),
     ]),
     
-    # Hidden stores to hold data in the browser's memory
     dcc.Store(id='ra-results-store'),
     dcc.Store(id='ra-input-df-store'),
 ], fluid=True, className="mt-4")
-
 
 # =============================================================================
 # Callbacks
@@ -110,7 +98,6 @@ def update_strategy_dropdown(goal_choice):
 
 @callback(Output('ra-battery-params-container', 'children'), Input('ra-situation-dropdown', 'value'))
 def show_battery_params(situation):
-    # This "hide-don't-remove" logic is critical for making the "Run" button stable.
     display_style = {'display': 'block'}
     if not situation or not ("Battery" in situation or "PAP" in situation):
         display_style = {'display': 'none'}
@@ -157,10 +144,6 @@ def handle_upload(contents, filename):
 )
 def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
     if not df_json: return {"error": "Please upload a data file first."}
-    
-    # Add a small delay to make the spinner visible even for fast calculations
-    time.sleep(1) 
-    
     input_df = pd.read_json(df_json, orient='split')
     params = {
         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
@@ -208,26 +191,18 @@ def display_results(results_data):
 def update_charts(resolution, results_data):
     if not results_data or results_data.get("error"):
         return [dbc.Tab(label="No Data", children=[dbc.Alert("Run a successful analysis to view charts.", color="info")])]
-
     df_original = pd.read_json(results_data["df"], orient='split')
     df_original.index = pd.to_datetime(df_original.index)
-    if df_original.empty:
-        return [dbc.Tab(label="No Data", children=[dbc.Alert("Model returned no data for plotting.", color="warning")])]
+    if df_original.empty: return [dbc.Tab(label="No Data", children=[dbc.Alert("Model returned no data for plotting.", color="warning")])]
 
     df_resampled = resample_data(df_original.copy(), resolution)
     total_result_col = find_total_result_column(df_original)
-    tab1_content = dcc.Graph(figure=px.line(df_resampled, y=total_result_col, title=f"Financial Result ({resolution})")) if total_result_col else dbc.Alert("No 'total_result' column found.", color="warning")
-    
-    tab2_children = []
+    tab1 = dbc.Tab(dcc.Graph(figure=px.line(df_resampled, y=total_result_col, title=f"Financial Result ({resolution})")) if total_result_col else dbc.Alert("..."), label="💰 Financial Results")
+    tab2_children, tab3_content = [], dbc.Alert("No SoC data.", color="warning")
     if 'production_PV' in df_resampled.columns: tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='production_PV', title=f"PV Production ({resolution})")))
     if 'load' in df_resampled.columns: tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='load', title=f"Load ({resolution})")))
-    tab3_content = dcc.Graph(figure=px.line(df_original, y='SoC_kWh', title="Battery SoC (15 Min Resolution)")) if 'SoC_kWh' in df_original.columns else dbc.Alert("No 'SoC_kWh' column found.", color="warning")
-
-    return [
-        dbc.Tab(tab1_content, label="💰 Financial Results"),
-        dbc.Tab(tab2_children, label="⚡ Energy Profiles"),
-        dbc.Tab(tab3_content, label="🔋 Battery SoC"),
-    ]
+    if 'SoC_kWh' in df_original.columns: tab3_content = dcc.Graph(figure=px.line(df_original, y='SoC_kWh', title="Battery SoC (15 Min Resolution)"))
+    return [tab1, dbc.Tab(tab2_children, label="⚡ Energy Profiles"), dbc.Tab(tab3_content, label="🔋 Battery SoC")]
 
 @callback(
     Output("ra-download-excel", "data"),
@@ -236,6 +211,11 @@ def update_charts(resolution, results_data):
     prevent_initial_call=True,
 )
 def download_excel(n_clicks, results_data):
-    if not results_data or "output_file_bytes" not in results_data: return no_update
-    file_bytes = results_data["output_file_bytes"]
-    return dcc.send_bytes(file_bytes, f"Revenue_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    if not results_data or "output_file_bytes_b64" not in results_data: return no_update
+    # **THIS IS THE SECOND CRITICAL FIX**
+    # We now use dcc.send_data to handle the Base64 encoded string from the placeholder
+    return dcc.send_data_frame(
+        pd.read_excel(io.BytesIO(base64.b64decode(results_data["output_file_bytes_b64"]))).to_excel,
+        f"Revenue_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        sheet_name="Results"
+    )
