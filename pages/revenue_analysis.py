@@ -51,7 +51,7 @@ sidebar = dbc.Card(dbc.CardBody([
     ),
     html.Div(id='ra-strategy-container', className="mb-3"),
 
-    # This container will be hidden or shown via the callback
+    # This container will be hidden or shown via a callback
     html.Div(id='ra-battery-params-container'),
     
     dbc.Label("Cost Parameters"),
@@ -79,12 +79,8 @@ layout = html.Div([
         id="ra-fullscreen-loader",
         type="default",
         fullscreen=True,
-        children=dbc.Container([
-            dbc.Row([
-                dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
-                dbc.Col(main_content, width=12, lg=9),
-            ]),
-        ], fluid=True, className="mt-4")
+        # The spinner targets the content of the page
+        children=html.Div(id="ra-page-content") 
     ),
     dcc.Store(id='ra-results-store'),
     dcc.Store(id='ra-input-df-store'),
@@ -93,6 +89,17 @@ layout = html.Div([
 # =============================================================================
 # Callbacks
 # =============================================================================
+
+# This callback renders the main page content. The spinner is outside this, so it's not affected.
+@callback(Output('ra-page-content', 'children'), Input('ra-run-button', 'id')) # Trigger on page load
+def render_page_content(_):
+    return dbc.Container([
+        dbc.Row([
+            dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
+            dbc.Col(main_content, width=12, lg=9),
+        ]),
+    ], fluid=True, className="mt-4")
+
 
 @callback(Output('ra-strategy-container', 'children'), Input('ra-goal-radio', 'value'))
 def update_strategy_dropdown(goal_choice):
@@ -109,13 +116,9 @@ def update_strategy_dropdown(goal_choice):
 
 @callback(Output('ra-battery-params-container', 'children'), Input('ra-situation-dropdown', 'value'))
 def show_battery_params(situation):
-    # **THIS IS THE CRITICAL FIX FOR THE "RUN" BUTTON**
-    # We now always return the components, but hide them with CSS `display: none`
-    # This ensures the component IDs exist in the layout for other callbacks.
     display_style = {'display': 'block'}
     if not situation or not ("Battery" in situation or "PAP" in situation):
         display_style = {'display': 'none'}
-
     return html.Div(style=display_style, children=[
         dbc.Label("Battery Parameters"),
         dbc.InputGroup([dbc.InputGroupText("Power (MW)"), dbc.Input(id='ra-power-mw', type='number', value=1.0, min=0.1, step=0.1)], className="mb-2"),
@@ -147,8 +150,6 @@ def handle_upload(contents, filename):
 
 @callback(
     Output('ra-results-store', 'data'),
-    # THIS IS THE FIX: The spinner is now triggered by the run button
-    Output('ra-fullscreen-loader', 'children', allow_duplicate=True), 
     Input('ra-run-button', 'n_clicks'),
     [
         State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
@@ -160,10 +161,7 @@ def handle_upload(contents, filename):
     prevent_initial_call=True
 )
 def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
-    if not df_json:
-        # Don't show spinner for a simple validation error
-        return {"error": "Please upload a data file first."}, no_update
-
+    if not df_json: return {"error": "Please upload a data file first."}
     input_df = pd.read_json(df_json, orient='split')
     params = {
         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
@@ -173,11 +171,7 @@ def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_d
         "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
         "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
     }
-    
-    results = run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
-    
-    # After results are ready, return them and stop the spinner
-    return results, no_update
+    return run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
 
 @callback(Output('ra-results-output', 'children'), Input('ra-results-store', 'data'))
 def display_results(results_data):
@@ -191,7 +185,6 @@ def display_results(results_data):
     total_result_col = find_total_result_column(df)
     net_result = df[total_result_col].sum() if total_result_col and not df.empty else 0
     warnings_layout = [dbc.Alert(w, color="warning") for w in results_data.get("warnings", [])]
-    
     return html.Div([
         dcc.Download(id="ra-download-excel"),
         html.H4("📈 Results Summary"),
@@ -216,7 +209,6 @@ def display_results(results_data):
 def update_charts(resolution, results_data):
     if not results_data or results_data.get("error"):
         return [dbc.Tab(label="No Data", children=[dbc.Alert("Run a successful analysis to view charts.", color="info")])]
-
     df_original = pd.read_json(results_data["df"], orient='split')
     df_original.index = pd.to_datetime(df_original.index)
     if df_original.empty:
@@ -227,11 +219,8 @@ def update_charts(resolution, results_data):
     tab1_content = dcc.Graph(figure=px.line(df_resampled, y=total_result_col, title=f"Financial Result ({resolution})")) if total_result_col else dbc.Alert("No 'total_result' column found.", color="warning")
     
     tab2_children = []
-    if 'production_PV' in df_resampled.columns:
-        tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='production_PV', title=f"PV Production ({resolution})")))
-    if 'load' in df_resampled.columns:
-        tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='load', title=f"Load ({resolution})")))
-        
+    if 'production_PV' in df_resampled.columns: tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='production_PV', title=f"PV Production ({resolution})")))
+    if 'load' in df_resampled.columns: tab2_children.append(dcc.Graph(figure=px.line(df_resampled, y='load', title=f"Load ({resolution})")))
     tab3_content = dcc.Graph(figure=px.line(df_original, y='SoC_kWh', title="Battery SoC (15 Min Resolution)")) if 'SoC_kWh' in df_original.columns else dbc.Alert("No 'SoC_kWh' column found.", color="warning")
 
     return [
