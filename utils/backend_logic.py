@@ -1,67 +1,164 @@
 # utils/backend_logic.py
+import pandas as pd
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
+import datetime
+import io
+import traceback
 import sys
 import os
-import pandas as pd
-import io
 import base64
-import time
 
-# --- THIS IS THE FIX ---
-# This code block robustly adds your main project folder to Python's path,
-# ensuring that it can always find the 'main_models' package.
+# This block ensures Python can find your 'main_models' package
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
-# --------------------
 
-# --- THE SECOND FIX ---
-# The import statements now use the corrected package name 'main_models'.
-# I am assuming the function inside each of your files is named 'run_simulation'.
-# If not, you must change the name after 'import' to match your function.
-from main_models.self_consumption_PV_PAP import run_simulation as run_self_consumption_model
-from main_models.day_ahead_trading_PAP import run_simulation as run_day_ahead_model
-from main_models.imbalance_everything_PAP import run_simulation as run_imbalance_pap_model
-from main_models.imbalance_algorithm_SAP import run_simulation as run_imbalance_sap_model
-
+# This import block uses the corrected function names you discovered.
+IMPORTS_OK = False
+IMPORT_ERROR_MESSAGE = ""
+try:
+    from main_models.imbalance_algorithm_SAP import run_simulation as run_battery_trading_SAP
+    from main_models.self_consumption_PV_PAP import calculate_self_consumption as run_battery_trading_PAP
+    from main_models.day_ahead_trading_PAP import execute_day_ahead_logic as run_battery_trading_day_ahead
+    from main_models.imbalance_everything_PAP import run_simulation as run_battery_trading_everything_PAP
+    IMPORTS_OK = True
+except ImportError as e:
+    IMPORT_ERROR_MESSAGE = f"Critical Error: Could not import a model file from 'main_models'. Please check file and function names. Details: {e}"
 
 def run_master_simulation(params, input_df, progress_callback):
     """
-    This master function calls the correct model based on the user's strategy choice.
+    This is your original revenue_logic function, fully adapted for Dash.
+    It calls the correct model and generates the detailed Excel export.
     """
-    strategy = params.get("STRATEGY_CHOICE")
+    if not IMPORTS_OK:
+        return {"summary": None, "warnings": [], "error": IMPORT_ERROR_MESSAGE}
+
+    now = datetime.datetime.now()
+    warnings = []
     
-    model_mapping = {
-        "Prioritize Self-Consumption": run_self_consumption_model,
-        "Optimize on Day-Ahead Market": run_day_ahead_model,
-        "Advanced Whole-System Trading (Imbalance)": run_imbalance_pap_model,
-        "Simple Battery Trading (Imbalance)": run_imbalance_sap_model
-    }
+    # Use a simple class to mimic the config object your models expect
+    class Cfg: pass
+    config = Cfg()
+    for k, v in params.items():
+        setattr(config, k, v)
+    
+    config.input_data = input_df
 
-    model_to_run = model_mapping.get(strategy)
-
-    if not model_to_run:
-        return {"error": f"Strategy '{strategy}' is not yet connected to a model script."}
+    progress_callback("Starting model run...")
 
     try:
-        results = model_to_run(params, input_df, progress_callback)
-    except Exception as e:
-        return {"error": f"An error occurred while running the simulation: {e}"}
-
-    if results.get("error"):
-        return results
-
-    df = results.get('df')
-    if df is None:
-        return {"error": "The simulation ran but did not return a DataFrame."}
+        strategy = params["STRATEGY_CHOICE"]
         
-    output_stream = io.BytesIO()
-    with pd.ExcelWriter(output_stream, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Results')
-    output_stream.seek(0)
-    
-    file_bytes_b64 = base64.b64encode(output_stream.getvalue()).decode('utf-8')
+        # --- 1. Run the selected battery trading algorithm ---
+        if strategy == "Simple Battery Trading (Imbalance)":
+            df, summary = run_battery_trading_SAP(config, progress_callback=progress_callback)
+        elif strategy == "Advanced Whole-System Trading (Imbalance)":
+            df, summary = run_battery_trading_everything_PAP(config, progress_callback=progress_callback)
+        elif strategy == "Optimize on Day-Ahead Market":
+            df, summary = run_battery_trading_day_ahead(config, progress_callback=progress_callback)
+        elif strategy == "Prioritize Self-Consumption":
+            df, summary = run_battery_trading_PAP(config, progress_callback=progress_callback)
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
 
-    results['df'] = df.to_json(orient='split')
-    results['output_file_bytes_b64'] = file_bytes_b64
-    
-    return results
+        if df is None or not isinstance(df, pd.DataFrame):
+            raise ValueError("Model run failed to return a valid DataFrame.")
+
+        progress_callback("Model run complete. Generating Excel output...")
+        
+        # --- 2. Define the specific columns to export based on the config ---
+        if strategy == "Simple Battery Trading (Imbalance)":
+            desired_columns = [
+                'regulation_state', 'price_surplus', 'price_shortage', 'price_day_ahead',
+                'space_for_charging_kWh', 'space_for_discharging_kWh', 'energy_charged_kWh',
+                'energy_discharged_kWh', 'SoC_kWh', 'SoC_pct', 'grid_exchange_kWh',
+                'e_program_kWh', 'day_ahead_result', 'imbalance_result', 'energy_tax',
+                'supplier_costs', 'transport_costs', 'total_result_imbalance_SAP'
+            ]
+        elif strategy == "Advanced Whole-System Trading (Imbalance)":
+            desired_columns = [
+                'regulation_state', 'price_surplus', 'price_shortage', 'price_day_ahead',
+                'space_for_charging_kWh', 'space_for_discharging_kWh', 'energy_charged_kWh',
+                'energy_discharged_kWh', 'SoC_kWh', 'SoC_pct', 'grid_exchange_kWh',
+                'e_program_kWh', 'day_ahead_result', 'imbalance_result', 'energy_tax',
+                'supplier_costs', 'transport_costs', 'total_result_imbalance_PAP'
+            ]
+        elif strategy == "Optimize on Day-Ahead Market":
+            desired_columns = [
+                'production_PV', 'load', 'grid_exchange_kWh', 'price_day_ahead',
+                'space_for_charging_kWh', 'space_for_discharging_kWh', 'energy_charged_kWh',
+                'energy_discharged_kWh', 'SoC_kWh', 'SoC_pct', 'dummy1', 'dummy2',
+                'day_ahead_result', 'dummy3', 'energy_tax', 'supplier_costs',
+                'transport_costs', 'total_result_day_ahead_trading'
+            ]
+        else:  # For "Prioritize Self-Consumption"
+            desired_columns = [
+                'production_PV', 'load', 'grid_exchange_kWh', 'price_day_ahead',
+                'space_for_charging_kWh', 'space_for_discharging_kWh', 'energy_charged_kWh',
+                'energy_discharged_kWh', 'SoC_kWh', 'SoC_pct', 'dummy1', 'dummy2',
+                'day_ahead_result', 'dummy3', 'energy_tax', 'supplier_costs',
+                'transport_costs', 'total_result_self_consumption'
+            ]
+
+        df.index.name = 'Datetime'
+        existing_columns = [col for col in desired_columns if col in df.columns]
+        df_export = df[existing_columns]
+
+        # --- 3. Create a new workbook and populate it correctly ---
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Import uit Python"
+
+        rows = dataframe_to_rows(df_export, index=True, header=True)
+        for r_idx, row in enumerate(rows, start=7):
+            for c_idx, value in enumerate(row, start=2):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+        
+        ws.merge_cells('C6:M6')
+        datum_str = now.strftime('%d-%m-%Y %Hu%M')
+        optimization_method = summary.get('optimization_method', 'Pyomo optimalisatie')
+        summary_text = (
+            f"Python run {datum_str}     {params['POWER_MW']} MW     {params['CAPACITY_MWH']} MWh     "
+            f"{round(summary.get('total_cycles', 0), 1)} cycli per jaar.     "
+            f"Algoritme: {params['STRATEGY_CHOICE']}     "
+            f"Optimalisatie: {optimization_method}"
+        )
+        ws['C6'] = summary_text
+        
+        ws['W2'] = params['POWER_MW']
+        ws['W3'] = params['CAPACITY_MWH']
+        ws['W4'] = params['MIN_SOC']
+        ws['W5'] = params['MAX_SOC']
+        ws['W6'] = params['EFF_CH']
+        ws['W7'] = params['EFF_DIS']
+        ws['W8'] = params['SUPPLY_COSTS']
+        ws['W9'] = params['TRANSPORT_COSTS']
+
+        # --- 4. Save workbook to in-memory buffer for download ---
+        output_buffer = io.BytesIO()
+        wb.save(output_buffer)
+        output_buffer.seek(0)
+        
+        if 'warning_message' in summary and summary['warning_message']:
+            warnings.append(summary['warning_message'])
+        if 'infeasible_days' in summary and len(summary.get('infeasible_days', [])) > 0:
+            warnings.append(f"Model was infeasible for {len(summary['infeasible_days'])} days.")
+
+        progress_callback("Output file generated successfully!")
+        
+        # --- 5. Final formatting for Dash ---
+        file_bytes_b64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
+
+        return {
+            "df": df.to_json(orient='split'),
+            "summary": summary,
+            "output_file_bytes_b64": file_bytes_b64,
+            "warnings": warnings,
+            "error": None
+        }
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"ERROR in backend_logic: {tb}")
+        return {"summary": None, "warnings": [], "error": f"An error occurred during the model run: {str(e)}"}
