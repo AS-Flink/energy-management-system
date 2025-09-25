@@ -54,9 +54,7 @@ layout = dbc.Container([
                 # THIS IS THE NEW PROGRESS INDICATOR AREA
                 html.Div(id='ra-progress-container', className="mt-3")
                 
-                # This is where the live progress messages will appear.
-                html.Div(id='ra-progress-container', className="mt-3")
-    
+                
             ]), className="h-100"),
             width=12, lg=3, className="mb-4"
         ),
@@ -101,17 +99,18 @@ def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc,
     if not df_json:
         return {"error": "Please upload a data file first."}
 
-    # # This is the progress callback function, just like in your Streamlit app
-    # def progress_callback(message):
-    #     set_progress([
-    #         dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}, className="mb-2"),
-    #         html.P(f"⏳ {message}", className="small text-muted")
-    #     ])
+    # This is the progress callback function, just like in your Streamlit app
     def progress_callback(message):
+        # set_progress([
+        #     dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}, className="mb-2"),
+        #     html.P(f"⏳ {message}", className="small text-muted")
+        # ])
+
         set_progress([
             dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}),
             html.P(f"⏳ {message}", className="small text-muted mt-2")
         ])
+
 
     progress_callback("Reading data...")
     input_df = pd.read_json(df_json, orient='split')
@@ -131,6 +130,7 @@ def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc,
         dbc.Progress(value=100, color="success", style={"height": "5px"}, className="mb-2"),
         html.P("✅ Simulation Complete!", className="small text-success")
     ])
+    
     time.sleep(2) # Give the user a moment to see the completion message
     
     return results
