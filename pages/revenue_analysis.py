@@ -1,3 +1,4 @@
+# pages/revenue_analysis.py
 import dash
 from dash import html, dcc, callback, Input, Output, State, no_update
 import dash_bootstrap_components as dbc
@@ -14,14 +15,7 @@ from utils.diagrams import create_horizontal_diagram_with_icons
 # --- Page Registration ---
 dash.register_page(__name__, path='/revenue-analysis', name='Revenue Analysis 💰')
 
-# --- Reusable Components & Static Data ---
-def create_metric(label, value_id, default_value="--"):
-    """Creates a Bootstrap Card for displaying a key metric."""
-    return dbc.Card(dbc.CardBody([
-        html.H6(label, className="card-title text-muted small"),
-        html.H4(default_value, className="card-text", id=value_id)
-    ]))
-
+# --- Static Data ---
 situation_options = [
     "Situation 1: PV + Consumption on PAP", "Situation 2: PV on SAP, Consumption on PAP",
     "Situation 3: PV+Consumption on PAP, Battery on SAP", "Situation 4: Everything on PAP (Imbalance)",
@@ -68,25 +62,33 @@ sidebar = dbc.Card(dbc.CardBody([
 ]), className="h-100")
 
 # --- Main Content Layout ---
-main_content = dbc.Container([
+main_content = dbc.Container(fluid=True, children=[
     html.H1("Energy System Simulation ⚡"),
     html.P("Select a system configuration, upload your data, configure the parameters, and run the simulation."),
     html.Hr(),
     html.H4("Selected Configuration"),
     html.Div(id='ra-diagram-output', className="mb-4"),
     html.Hr(),
-    dcc.Loading(id="ra-loading-spinner", children=html.Div(id="ra-results-output"))
-], fluid=True)
+    # The results will be rendered inside this Div
+    html.Div(id="ra-results-output")
+])
 
-# --- Full Page Layout ---
-layout = dbc.Container([
-    dbc.Row([
-        dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
-        dbc.Col(main_content, width=12, lg=9),
-    ]),
+# --- Full Page Layout with Loading Spinner ---
+layout = html.Div([
+    dcc.Loading(
+        id="ra-fullscreen-loader",
+        type="default",
+        fullscreen=True,
+        children=dbc.Container([
+            dbc.Row([
+                dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
+                dbc.Col(main_content, width=12, lg=9),
+            ]),
+        ], fluid=True, className="mt-4")
+    ),
     dcc.Store(id='ra-results-store'),
     dcc.Store(id='ra-input-df-store'),
-], fluid=True, className="mt-4")
+])
 
 # =============================================================================
 # Callbacks
@@ -134,8 +136,7 @@ def update_diagram(situation):
 
 @callback(
     [Output('ra-upload-status', 'children'), Output('ra-input-df-store', 'data')],
-    Input('ra-upload-data', 'contents'),
-    State('ra-upload-data', 'filename'),
+    Input('ra-upload-data', 'contents'), State('ra-upload-data', 'filename'),
     prevent_initial_call=True
 )
 def handle_upload(contents, filename):
@@ -146,6 +147,8 @@ def handle_upload(contents, filename):
 
 @callback(
     Output('ra-results-store', 'data'),
+    # THIS IS THE FIX: The spinner is now triggered by the run button
+    Output('ra-fullscreen-loader', 'children', allow_duplicate=True), 
     Input('ra-run-button', 'n_clicks'),
     [
         State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
@@ -157,7 +160,10 @@ def handle_upload(contents, filename):
     prevent_initial_call=True
 )
 def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
-    if not df_json: return {"error": "Please upload a data file first."}
+    if not df_json:
+        # Don't show spinner for a simple validation error
+        return {"error": "Please upload a data file first."}, no_update
+
     input_df = pd.read_json(df_json, orient='split')
     params = {
         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
@@ -167,7 +173,11 @@ def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_d
         "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
         "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
     }
-    return run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
+    
+    results = run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
+    
+    # After results are ready, return them and stop the spinner
+    return results, no_update
 
 @callback(Output('ra-results-output', 'children'), Input('ra-results-store', 'data'))
 def display_results(results_data):
@@ -175,31 +185,27 @@ def display_results(results_data):
         return dbc.Alert("Configure your simulation in the sidebar and click 'Run Analysis' to see the results.", color="info")
     if results_data.get("error"):
         return dbc.Alert(f"Error: {results_data['error']}", color="danger")
-
+    
     summary = results_data["summary"]
     df = pd.read_json(results_data["df"], orient='split')
     total_result_col = find_total_result_column(df)
     net_result = df[total_result_col].sum() if total_result_col and not df.empty else 0
     warnings_layout = [dbc.Alert(w, color="warning") for w in results_data.get("warnings", [])]
-
+    
     return html.Div([
         dcc.Download(id="ra-download-excel"),
         html.H4("📈 Results Summary"),
         dbc.Alert(f"Analysis Method Used: {summary.get('optimization_method', 'N/A')}", color="secondary"),
         dbc.Row([
-            dbc.Col(create_metric("Net Result / Revenue", 'ra-metric-net-result', f"€ {net_result:,.0f}")),
-            dbc.Col(create_metric("Total Cycles", 'ra-metric-cycles', f"{summary.get('total_cycles', 0):.1f}")),
-            dbc.Col(create_metric("Infeasible Days", 'ra-metric-infeasible', f"{len(summary.get('infeasible_days', []))}")),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Net Result / Revenue", className="text-muted small"), html.H4(f"€ {net_result:,.0f}")]))),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Total Cycles", className="text-muted small"), html.H4(f"{summary.get('total_cycles', 0):.1f}")]))),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Infeasible Days", className="text-muted small"), html.H4(f"{len(summary.get('infeasible_days', []))}")]))),
         ], className="mb-3"),
         *warnings_layout,
         dbc.Button("📥 Download Full Results (Excel)", id="ra-download-button", color="success", className="mt-3 mb-4"),
         html.Hr(),
         html.H4("📊 Interactive Charts"),
-        dcc.Dropdown(
-            id='ra-resolution-dropdown',
-            options=['15 Min (Original)', 'Hourly', 'Daily', 'Monthly', 'Yearly'],
-            value='Daily', clearable=False, className="mb-3"
-        ),
+        dcc.Dropdown(id='ra-resolution-dropdown', options=['15 Min (Original)', 'Hourly', 'Daily', 'Monthly', 'Yearly'], value='Daily', clearable=False, className="mb-3"),
         dbc.Tabs(id="ra-charts-tabs")
     ])
 
