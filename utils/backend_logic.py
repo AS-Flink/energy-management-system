@@ -7,18 +7,22 @@ import base64
 import time
 
 # --- THIS IS THE FIX ---
-# This code tells Python to look in the main project folder for modules.
-# It makes the import `from main_models...` work correctly.
+# This code block robustly adds your main project folder to Python's path,
+# ensuring that it can always find the 'main_models' package.
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 # --------------------
 
-# Now, Python can find your 'main_models' folder
+# --- THE SECOND FIX ---
+# The import statements now use the corrected package name 'main_models'.
+# I am assuming the function inside each of your files is named 'run_simulation'.
+# If not, you must change the name after 'import' to match your function.
 from main_models.self_consumption_PV_PAP import run_simulation as run_self_consumption_model
 from main_models.day_ahead_trading_PAP import run_simulation as run_day_ahead_model
 from main_models.imbalance_everything_PAP import run_simulation as run_imbalance_pap_model
 from main_models.imbalance_algorithm_SAP import run_simulation as run_imbalance_sap_model
+
 
 def run_master_simulation(params, input_df, progress_callback):
     """
