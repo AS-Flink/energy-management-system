@@ -12,8 +12,6 @@ from utils.data_processing import parse_contents, find_total_result_column, resa
 from utils.diagrams import create_horizontal_diagram_with_icons
 
 # --- Page Registration ---
-# This is the most critical line for routing. 
-# The `path='/revenue-analysis'` MUST match the `href` in your app.py navbar.
 dash.register_page(__name__, path='/revenue-analysis', name='Revenue Analysis 💰')
 
 # --- Reusable Components & Static Data ---
@@ -35,17 +33,16 @@ situation_options = [
 sidebar = dbc.Card(dbc.CardBody([
     html.H4("⚙️ Configuration", className="mb-3"),
     dbc.Label("1. System Configuration"),
-    dcc.Dropdown(id="ra-situation-dropdown", options=situation_options, value=situation_options[3]),
-    html.Hr(),
-
+    dcc.Dropdown(id="ra-situation-dropdown", options=situation_options, value=situation_options[3], className="mb-3"),
+    
     dbc.Label("2. Upload Data (CSV or Excel)"),
     dcc.Upload(
         id='ra-upload-data',
         children=html.Div(['Drag and Drop or ', html.A('Select Files')]),
         style={'borderWidth': '1px', 'borderStyle': 'dashed', 'borderRadius': '5px', 'textAlign': 'center', 'padding': '10px'},
+        className="mb-1"
     ),
-    html.Div(id='ra-upload-status', className="mt-2 small"),
-    html.Hr(),
+    html.Div(id='ra-upload-status', className="small mb-3"),
 
     dbc.Label("3. Optimization Strategy"),
     dbc.RadioItems(
@@ -55,19 +52,17 @@ sidebar = dbc.Card(dbc.CardBody([
             {'label': 'Generate Revenue', 'value': 'generate'},
         ],
         value='generate',
-        inline=True
+        inline=True,
+        className="mb-2"
     ),
-    html.Div(id='ra-strategy-container', className="mt-2"),
-    html.Hr(),
+    html.Div(id='ra-strategy-container', className="mb-3"),
 
     html.Div(id='ra-battery-params-container'),
     
     dbc.Label("Cost Parameters"),
-    dbc.Row([
-        dbc.Col(dbc.InputGroup([dbc.InputGroupText("Supplier €/MWh"), dbc.Input(id='ra-supply-costs', type='number', value=20.0)])),
-        dbc.Col(dbc.InputGroup([dbc.InputGroupText("Transport €/MWh"), dbc.Input(id='ra-transport-costs', type='number', value=15.0)])),
-    ]),
-    html.Hr(),
+    dbc.InputGroup([dbc.InputGroupText("Supplier €/MWh"), dbc.Input(id='ra-supply-costs', type='number', value=20.0)], className="mb-2"),
+    dbc.InputGroup([dbc.InputGroupText("Transport €/MWh"), dbc.Input(id='ra-transport-costs', type='number', value=15.0)], className="mb-3"),
+    
     dbc.Button("🚀 Run Analysis", id="ra-run-button", color="primary", n_clicks=0, className="w-100")
 ]), className="h-100")
 
@@ -88,7 +83,6 @@ layout = dbc.Container([
         dbc.Col(sidebar, width=12, lg=3, className="mb-4"),
         dbc.Col(main_content, width=12, lg=9),
     ]),
-    # Hidden stores to hold data in the browser's memory
     dcc.Store(id='ra-results-store'),
     dcc.Store(id='ra-input-df-store'),
 ], fluid=True, className="mt-4")
@@ -105,20 +99,12 @@ def update_strategy_dropdown(goal_choice):
     if goal_choice == 'minimize':
         return html.Div([
             dbc.Alert("Use assets to reduce overall energy costs.", color="info", className="small p-2"),
-            dcc.Dropdown(
-                id='ra-strategy-dropdown',
-                options=["Prioritize Self-Consumption", "Optimize on Day-Ahead Market"],
-                value="Prioritize Self-Consumption"
-            )
+            dcc.Dropdown(id='ra-strategy-dropdown', options=["Prioritize Self-Consumption", "Optimize on Day-Ahead Market"], value="Prioritize Self-Consumption")
         ])
     else: # generate
         return html.Div([
             dbc.Alert("Actively use assets to trade on energy markets.", color="info", className="small p-2"),
-            dcc.Dropdown(
-                id='ra-strategy-dropdown',
-                options=["Simple Battery Trading (Imbalance)", "Advanced Whole-System Trading (Imbalance)"],
-                value="Simple Battery Trading (Imbalance)"
-            )
+            dcc.Dropdown(id='ra-strategy-dropdown', options=["Simple Battery Trading (Imbalance)", "Advanced Whole-System Trading (Imbalance)"], value="Simple Battery Trading (Imbalance)")
         ])
 
 @callback(
@@ -129,26 +115,21 @@ def show_battery_params(situation):
     if situation and ("Battery" in situation or "PAP" in situation):
         return html.Div([
             dbc.Label("Battery Parameters"),
-            dbc.InputGroup([dbc.InputGroupText("Power (MW)"), dbc.Input(id='ra-power-mw', type='number', value=1.0, min=0.1, step=0.1)]),
-            dbc.InputGroup([dbc.InputGroupText("Capacity (MWh)"), dbc.Input(id='ra-capacity-mwh', type='number', value=2.0, min=0.1, step=0.1)], className="mt-2"),
+            dbc.InputGroup([dbc.InputGroupText("Power (MW)"), dbc.Input(id='ra-power-mw', type='number', value=1.0, min=0.1, step=0.1)], className="mb-2"),
+            dbc.InputGroup([dbc.InputGroupText("Capacity (MWh)"), dbc.Input(id='ra-capacity-mwh', type='number', value=2.0, min=0.1, step=0.1)], className="mb-2"),
             html.Div("Min/Max SoC", className="small text-muted mt-2"),
             dcc.RangeSlider(id='ra-soc-slider', min=0, max=1, step=0.01, value=[0.05, 0.95], marks={0: '0%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
             html.Div("Charging Efficiency", className="small text-muted mt-2"),
             dcc.Slider(id='ra-eff-ch', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
             html.Div("Discharging Efficiency", className="small text-muted mt-2"),
             dcc.Slider(id='ra-eff-dis', min=0.8, max=1, step=0.01, value=0.95, marks={0.8: '80%', 1: '100%'}, tooltip={"placement": "bottom", "always_visible": True}),
-            dbc.InputGroup([dbc.InputGroupText("Max Cycles/Year"), dbc.Input(id='ra-max-cycles', type='number', value=600, min=1)], className="mt-2"),
-            html.Hr(),
+            dbc.InputGroup([dbc.InputGroupText("Max Cycles/Year"), dbc.Input(id='ra-max-cycles', type='number', value=600, min=1)], className="mt-2 mb-3"),
         ])
     return None
 
-@callback(
-    Output('ra-diagram-output', 'children'),
-    Input('ra-situation-dropdown', 'value')
-)
+@callback(Output('ra-diagram-output', 'children'), Input('ra-situation-dropdown', 'value'))
 def update_diagram(situation):
-    if not situation:
-        return dbc.Alert("Please select a system configuration.", color="warning")
+    if not situation: return dbc.Alert("Please select a system configuration.", color="warning")
     return create_horizontal_diagram_with_icons(situation)
 
 @callback(
@@ -158,22 +139,16 @@ def update_diagram(situation):
     prevent_initial_call=True
 )
 def handle_upload(contents, filename):
-    if contents is None:
-        return no_update, no_update
-    
+    if contents is None: return no_update, no_update
     df, message = parse_contents(contents, f"revenue_{filename}")
-
-    if df is None:
-        return html.Div(message, className="text-danger small"), None
-    
+    if df is None: return html.Div(message, className="text-danger small"), None
     return html.Div(message, className="text-success small"), df.to_json(date_format='iso', orient='split')
 
 @callback(
     Output('ra-results-store', 'data'),
     Input('ra-run-button', 'n_clicks'),
     [
-        State('ra-input-df-store', 'data'),
-        State('ra-strategy-dropdown', 'value'),
+        State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
         State('ra-power-mw', 'value'), State('ra-capacity-mwh', 'value'),
         State('ra-soc-slider', 'value'), State('ra-eff-ch', 'value'),
         State('ra-eff-dis', 'value'), State('ra-max-cycles', 'value'),
@@ -182,11 +157,8 @@ def handle_upload(contents, filename):
     prevent_initial_call=True
 )
 def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
-    if df_json is None:
-        return {"error": "Please upload a data file first."}
-
+    if not df_json: return {"error": "Please upload a data file first."}
     input_df = pd.read_json(df_json, orient='split')
-    
     params = {
         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
         "MIN_SOC": soc[0] if soc else 0, "MAX_SOC": soc[1] if soc else 1,
@@ -195,9 +167,7 @@ def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_d
         "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
         "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
     }
-    
-    results = run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
-    return results
+    return run_revenue_model_placeholder(params, input_df, lambda msg: print(msg))
 
 @callback(
     Output('ra-results-output', 'children'),
@@ -213,7 +183,6 @@ def display_results(results_data):
     df = pd.read_json(results_data["df"], orient='split')
     total_result_col = find_total_result_column(df)
     net_result = df[total_result_col].sum() if total_result_col and not df.empty else 0
-
     warnings_layout = [dbc.Alert(w, color="warning") for w in results_data.get("warnings", [])]
 
     return html.Div([
@@ -232,17 +201,14 @@ def display_results(results_data):
         dcc.Dropdown(
             id='ra-resolution-dropdown',
             options=['15 Min (Original)', 'Hourly', 'Daily', 'Monthly', 'Yearly'],
-            value='Daily',
-            clearable=False,
-            className="mb-3"
+            value='Daily', clearable=False, className="mb-3"
         ),
         dbc.Tabs(id="ra-charts-tabs")
     ])
 
 @callback(
     Output('ra-charts-tabs', 'children'),
-    Input('ra-resolution-dropdown', 'value'),
-    Input('ra-results-store', 'data')
+    [Input('ra-resolution-dropdown', 'value'), Input('ra-results-store', 'data')]
 )
 def update_charts(resolution, results_data):
     if not results_data or results_data.get("error"):
@@ -250,13 +216,11 @@ def update_charts(resolution, results_data):
 
     df_original = pd.read_json(results_data["df"], orient='split')
     df_original.index = pd.to_datetime(df_original.index)
-
     if df_original.empty:
         return [dbc.Tab(label="No Data", children=[dbc.Alert("Model returned no data for plotting.", color="warning")])]
 
     df_resampled = resample_data(df_original.copy(), resolution)
     total_result_col = find_total_result_column(df_original)
-
     tab1_content = dcc.Graph(figure=px.line(df_resampled, y=total_result_col, title=f"Financial Result ({resolution})")) if total_result_col else dbc.Alert("No 'total_result' column found.", color="warning")
     
     tab2_children = []
@@ -280,8 +244,6 @@ def update_charts(resolution, results_data):
     prevent_initial_call=True,
 )
 def download_excel(n_clicks, results_data):
-    if not results_data or "output_file_bytes" not in results_data:
-        return no_update
-    
+    if not results_data or "output_file_bytes" not in results_data: return no_update
     file_bytes = results_data["output_file_bytes"]
     return dcc.send_bytes(file_bytes, f"Revenue_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
