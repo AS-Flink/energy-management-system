@@ -1,7 +1,21 @@
-# app.py (Simplified Version)
+# app.py
 import dash
 from dash import dcc, html
 import dash_bootstrap_components as dbc
+import diskcache
+
+# # --- Setup for Background Callbacks ---
+# cache = diskcache.Cache("./cache")
+# long_callback_manager = DiskcacheManager(cache)
+
+# app = dash.Dash(
+#     __name__,
+#     external_stylesheets=[dbc.themes.BOOTSTRAP, '/assets/styles.css'],
+#     use_pages=True,
+#     # --- Register the manager with the app ---
+#     long_callback_manager=long_callback_manager,
+# )
+# server = app.server
 
 # Simple app instantiation without any managers
 app = dash.Dash(

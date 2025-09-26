@@ -81,6 +81,59 @@ layout = dbc.Container([
 # =============================================================================
 
 # This is the new background callback that handles the entire simulation process.
+# @callback(
+#     Output('ra-results-store', 'data'),
+#     Input('ra-run-button', 'n_clicks'),
+#     [
+#         State('ra-input-df-store', 'data'), State('ra-strategy-dropdown', 'value'),
+#         State('ra-power-mw', 'value'), State('ra-capacity-mwh', 'value'),
+#         State('ra-soc-slider', 'value'), State('ra-eff-ch', 'value'),
+#         State('ra-eff-dis', 'value'), State('ra-max-cycles', 'value'),
+#         State('ra-supply-costs', 'value'), State('ra-transport-costs', 'value'),
+#     ],
+#     background=True,
+#     progress=Output('ra-progress-container', 'children'),
+#     prevent_initial_call=True
+# )
+# def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
+#     if not df_json:
+#         return {"error": "Please upload a data file first."}
+
+#     # This is the progress callback function, just like in your Streamlit app
+#     def progress_callback(message):
+#         # set_progress([
+#         #     dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}, className="mb-2"),
+#         #     html.P(f"⏳ {message}", className="small text-muted")
+#         # ])
+
+#         set_progress([
+#             dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}),
+#             html.P(f"⏳ {message}", className="small text-muted mt-2")
+#         ])
+
+
+#     progress_callback("Reading data...")
+#     input_df = pd.read_json(df_json, orient='split')
+#     params = {
+#         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
+#         "MIN_SOC": soc[0] if soc else 0, "MAX_SOC": soc[1] if soc else 1,
+#         "EFF_CH": eff_ch or 1, "EFF_DIS": eff_dis or 1,
+#         "MAX_CYCLES": cycles or 0, "INIT_SOC": 0.5,
+#         "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
+#         "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
+#     }
+    
+#     # This now calls your real logic
+#     results = run_master_simulation(params, input_df, progress_callback)
+    
+#     set_progress([
+#         dbc.Progress(value=100, color="success", style={"height": "5px"}, className="mb-2"),
+#         html.P("✅ Simulation Complete!", className="small text-success")
+#     ])
+    
+#     time.sleep(2) # Give the user a moment to see the completion message
+    
+#     return results
 @callback(
     Output('ra-results-store', 'data'),
     Input('ra-run-button', 'n_clicks'),
@@ -91,28 +144,12 @@ layout = dbc.Container([
         State('ra-eff-dis', 'value'), State('ra-max-cycles', 'value'),
         State('ra-supply-costs', 'value'), State('ra-transport-costs', 'value'),
     ],
-    background=True,
-    progress=Output('ra-progress-container', 'children'),
     prevent_initial_call=True
 )
-def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
+def run_model(n_clicks, df_json, strategy, power_mw, cap_mwh, soc, eff_ch, eff_dis, cycles, supply, transport):
     if not df_json:
         return {"error": "Please upload a data file first."}
 
-    # This is the progress callback function, just like in your Streamlit app
-    def progress_callback(message):
-        # set_progress([
-        #     dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}, className="mb-2"),
-        #     html.P(f"⏳ {message}", className="small text-muted")
-        # ])
-
-        set_progress([
-            dbc.Progress(value=50, striped=True, animated=True, style={"height": "5px"}),
-            html.P(f"⏳ {message}", className="small text-muted mt-2")
-        ])
-
-
-    progress_callback("Reading data...")
     input_df = pd.read_json(df_json, orient='split')
     params = {
         "POWER_MW": power_mw or 0, "CAPACITY_MWH": cap_mwh or 0,
@@ -122,17 +159,8 @@ def run_model(set_progress, n_clicks, df_json, strategy, power_mw, cap_mwh, soc,
         "SUPPLY_COSTS": supply or 0, "TRANSPORT_COSTS": transport or 0,
         "STRATEGY_CHOICE": strategy, "TIME_STEP_H": 0.25
     }
-    
-    # This now calls your real logic
-    results = run_master_simulation(params, input_df, progress_callback)
-    
-    set_progress([
-        dbc.Progress(value=100, color="success", style={"height": "5px"}, className="mb-2"),
-        html.P("✅ Simulation Complete!", className="small text-success")
-    ])
-    
-    time.sleep(2) # Give the user a moment to see the completion message
-    
+    # Call your real logic
+    results = run_master_simulation(params, input_df, lambda msg: None)
     return results
 
 # This callback clears the progress indicator after the results are ready.

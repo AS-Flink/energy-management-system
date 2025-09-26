@@ -29,6 +29,7 @@ def calculate_energy_tax(total_consumption_mwh, tax_table):
     return tax_table['consumption_brackets'][-1]['tax_eur_per_mwh']
 
 def run_battery_trading(config, progress_callback=None):
+    import os
     # Read Excel sheet
     df = config.input_data.copy()
     datetime_col = None

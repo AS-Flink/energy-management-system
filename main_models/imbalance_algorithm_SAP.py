@@ -4,6 +4,7 @@ from pyomo.environ import *
 import os
 
 def run_battery_trading(config, progress_callback=None):
+    import os
     # Read Excel sheet
     df = config.input_data.copy()
     datetime_col = None
